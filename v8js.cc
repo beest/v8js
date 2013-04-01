@@ -38,6 +38,9 @@ extern "C" {
 #include <v8.h>
 #include "php_v8js_macros.h"
 
+#include <pthread.h>
+#include <signal.h>
+
 /* Forward declarations */
 static void php_v8js_throw_exception(v8::TryCatch * TSRMLS_DC);
 static void php_v8js_create_exception(zval *, v8::TryCatch * TSRMLS_DC);
@@ -108,6 +111,7 @@ zend_class_entry *php_ce_v8_object;
 zend_class_entry *php_ce_v8_function;
 static zend_class_entry *php_ce_v8js;
 static zend_class_entry *php_ce_v8js_exception;
+static zend_class_entry *php_ce_v8js_timeout_exception;
 /* }}} */
 
 /* {{{ Object Handlers */
@@ -518,6 +522,8 @@ static void php_v8js_fatal_error_handler(const char *location, const char *messa
 }
 /* }}} */
 
+static pthread_key_t php_v8js_thread_ctx_key;
+
 static void php_v8js_init(TSRMLS_D) /* {{{ */
 {
 	/* Run only once */
@@ -538,6 +544,9 @@ static void php_v8js_init(TSRMLS_D) /* {{{ */
 
 	/* Run only once */
 	V8JSG(v8_initialized) = 1;
+
+	// Create the thread key used to store thread-specific data
+	pthread_key_create(&php_v8js_thread_ctx_key, 0);
 }
 /* }}} */
 
@@ -655,86 +664,232 @@ static PHP_METHOD(V8Js, __construct)
 	(ctx) = (php_v8js_ctx *) zend_object_store_get_object(object TSRMLS_CC); \
 	v8::Context::Scope context_scope((ctx)->context);
 
-/* {{{ proto mixed V8Js::executeString(string script [, string identifier [, int flags]])
- */
-static PHP_METHOD(V8Js, executeString)
+struct php_v8js_thread_ctx
 {
-	char *str = NULL, *identifier = NULL;
-	int str_len = 0, identifier_len = 0;
-	long flags = V8JS_FLAG_NONE;
+	php_v8js_ctx *c;
+	char *identifier;
+	int identifier_len;
+	char *code;
+	int code_len;
+	long flags;
+	long timeout;
+	zval *return_value;
+	bool threaded;
+	bool execution_finished;
+	pthread_mutex_t mutex;
+	pthread_cond_t cond;
+};
 
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s|sl", &str, &str_len, &identifier, &identifier_len, &flags) == FAILURE) {
-		return;
-	}
+void v8_sig_fn(int sig)
+{
+printf("Caught signal: %d\n", sig);
 
-	V8JS_BEGIN_CTX(c, getThis())
+ 	// Get the thread-specific data
+ 	php_v8js_thread_ctx *tc = (php_v8js_thread_ctx *)pthread_getspecific(php_v8js_thread_ctx_key);
 
-	/* Catch JS exceptions */
+ 	// Terminate the V8 thread execution
+ 	v8::Locker locker;
+ 	v8::V8::TerminateExecution(v8::V8::GetCurrentThreadId());
+ 	v8::Unlocker unlocker;
+
+ 	// Exit the thread immediately
+ 	pthread_exit(0);
+}
+
+void *v8_thread_fn(void *data)
+{
+	php_v8js_thread_ctx *tc = (php_v8js_thread_ctx *)data;
+
+	if (tc->threaded)
+	{
+		// Store the thread context data for re-use in the signal action
+		pthread_setspecific(php_v8js_thread_ctx_key, data);
+
+		// Catch signals in this thread to stop V8 execution
+		struct sigaction thread_sigaction;
+    	thread_sigaction.sa_handler = v8_sig_fn;
+    	thread_sigaction.sa_flags = SA_NODEFER | SA_RESETHAND;
+
+    	// We only care about SIGUSR1
+    	sigemptyset(&thread_sigaction.sa_mask);
+    	sigaddset(&thread_sigaction.sa_mask, SIGUSR1);
+
+    	sigaction(SIGUSR1, &thread_sigaction, NULL);
+    }
+
+	php_v8js_ctx *c = tc->c;
+
+	// Lock the thread scope
+	v8::Locker locker;
+
+	// Start the V8JS context
+	v8::Context::Scope context_scope(c->context);
+
+	// Catch JS exceptions
 	v8::TryCatch try_catch;
 
 	v8::HandleScope handle_scope;
 
-	/* Set script identifier */
-	v8::Local<v8::String> sname = identifier_len ? V8JS_SYML(identifier, identifier_len) : V8JS_SYM("V8Js::executeString()");
+	// Set script identifier
+	v8::Local<v8::String> sname = tc->identifier_len ? V8JS_SYML(tc->identifier, tc->identifier_len) : V8JS_SYM("V8Js::executeString()");
 
-	/* Compiles a string context independently. TODO: Add a php function which calls this and returns the result as resource which can be executed later. */
-	v8::Local<v8::String> source = v8::String::New(str, str_len);
+	// Compiles a string context independently
+	v8::Local<v8::String> source = v8::String::New(tc->code, tc->code_len);
 	v8::Local<v8::Script> script = v8::Script::New(source, sname);
 
-	/* Compile errors? */
+	// Check for compile errors
 	if (script.IsEmpty()) {
 		php_v8js_throw_exception(&try_catch TSRMLS_CC);
-		return;
+		return NULL;
 	}
 
-	/* Set flags for runtime use */
-	V8JS_GLOBAL_SET_FLAGS(flags);
+	// Set flags for runtime use
+	V8JS_GLOBAL_SET_FLAGS(tc->flags);
 
-	/* Execute script */
+	// Execute script
 	c->in_execution++;
 	v8::Local<v8::Value> result = script->Run();
 	c->in_execution--;
 
-	/* Script possibly terminated, return immediately */
+	// Unlock the thread scope
+	v8::Unlocker unlocker;
+
+	// Script possibly terminated, return immediately
 	if (!try_catch.CanContinue()) {
-		/* TODO: throw PHP exception here? */
-		return;
+		// TODO: Throw PHP exception here?
+		return NULL;
 	}
 
-	/* There was pending exception left from earlier executions -> throw to PHP */
+	// There was pending exception left from earlier executions -> throw to PHP
 	if (c->pending_exception) {
 		zend_throw_exception_object(c->pending_exception TSRMLS_CC);
 		c->pending_exception = NULL;
 	}
 
-	/* Handle runtime JS exceptions */
+	// Handle runtime JS exceptions
 	if (try_catch.HasCaught()) {
 
-		/* Pending exceptions are set only in outer caller, inner caller exceptions are always rethrown */
+		// Pending exceptions are set only in outer caller, inner caller exceptions are always rethrown
 		if (c->in_execution < 1) {
 
-			/* Report immediately if report_uncaught is true */
+			// Report immediately if report_uncaught is true
 			if (c->report_uncaught) {
 				php_v8js_throw_exception(&try_catch TSRMLS_CC);
-				return;
+				return NULL;
 			}
 
-			/* Exception thrown from JS, preserve it for future execution */
+			// Exception thrown from JS, preserve it for future execution
 			if (result.IsEmpty()) {
 				MAKE_STD_ZVAL(c->pending_exception);
 				php_v8js_create_exception(c->pending_exception, &try_catch TSRMLS_CC);
 			}
 		}
 
-		/* Rethrow back to JS */
+		// Rethrow back to JS
 		try_catch.ReThrow();
+		return NULL;
+	}
+
+	// Convert V8 value to PHP value
+	if (!result.IsEmpty()) {
+		v8js_to_zval(result, tc->return_value, tc->flags TSRMLS_CC);
+	}
+
+	if (tc->threaded)
+	{
+		// Broadcast the fake condition
+		pthread_cond_broadcast(&tc->cond);
+	}
+}
+
+void *timeout_thread_fn(void *data)
+{
+  	struct timeval now;
+  	struct timespec wait;
+
+  	gettimeofday(&now, NULL);
+
+  	php_v8js_thread_ctx *tc = (php_v8js_thread_ctx *)data;
+
+  	// Note that nanoseconds are only supported up to 1s
+  	// This code fixes the nanosecond overflow
+  	wait.tv_nsec = (now.tv_usec + (1000 * tc->timeout)) * 1000;
+    wait.tv_sec = now.tv_sec + (wait.tv_nsec / 1000000000L);
+    wait.tv_nsec %= 1000000000L;
+
+  	pthread_mutex_lock(&tc->mutex);
+  	pthread_cond_timedwait(&tc->cond, &tc->mutex, &wait);
+  	pthread_mutex_unlock(&tc->mutex);
+}
+
+/* {{{ proto mixed V8Js::executeString(string script [, string identifier [, int flags]])
+ */
+static PHP_METHOD(V8Js, executeString)
+{
+	char *str = NULL, *identifier = NULL;
+	int str_len = 0, identifier_len = 0;
+	long flags = V8JS_FLAG_NONE, timeout = 0;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s|sll", &str, &str_len, &identifier, &identifier_len, &flags, &timeout) == FAILURE) {
 		return;
 	}
 
-	/* Convert V8 value to PHP value */
-	if (!result.IsEmpty()) {
-		v8js_to_zval(result, return_value, flags TSRMLS_CC);
+	if (!V8JSG(v8_initialized))
+	{
+		zend_error(E_ERROR, "V8 not initialized");
+		return;
 	}
+
+	php_v8js_ctx *c = (php_v8js_ctx *)zend_object_store_get_object(getThis() TSRMLS_CC);
+
+  	php_v8js_thread_ctx *tc = (php_v8js_thread_ctx *)malloc(sizeof(php_v8js_thread_ctx));
+  	tc->c = c;
+  	tc->identifier = identifier;
+  	tc->identifier_len = identifier_len;
+  	tc->code = str;
+  	tc->code_len = str_len;
+  	tc->flags = flags;
+  	tc->timeout = timeout;
+  	tc->return_value = return_value;
+   	tc->mutex = PTHREAD_MUTEX_INITIALIZER;
+  	tc->cond = PTHREAD_COND_INITIALIZER;
+  	tc->execution_finished = false;
+
+	if (timeout > 0)
+	{
+		tc->threaded = true;
+
+		pthread_t v8_thread, timeout_thread;
+	  	void *ret;
+
+		pthread_create(&v8_thread, NULL, v8_thread_fn, tc);
+
+	  	pthread_create(&timeout_thread, NULL, timeout_thread_fn, tc);
+		pthread_join(timeout_thread, &ret);
+
+		// If we get here then the timeout thread has finished
+		// This can happen if the timeout has expired or if the code has finished execution
+
+		// TODO: Check if V8 thread has already finished
+		if (!tc->execution_finished)
+		{
+			// Kill the V8 execution thread
+			pthread_kill(v8_thread, SIGUSR1);
+
+			// Throw a timeout exception
+			zend_throw_exception(php_ce_v8js_timeout_exception, "Script timeout exceeded", 0 TSRMLS_CC);
+		}
+	}
+	else
+	{
+		tc->threaded = false;
+
+		// Call the thread function directly, not via a pthread
+		v8_thread_fn(tc);
+	}
+
+	// Free thread context memory
+	free(tc);
 }
 /* }}} */
 
@@ -1168,6 +1323,11 @@ static PHP_MINIT_FUNCTION(v8js)
 	zend_declare_property_null(php_ce_v8js_exception, ZEND_STRL("JsLineNumber"),	ZEND_ACC_PROTECTED TSRMLS_CC);
 	zend_declare_property_null(php_ce_v8js_exception, ZEND_STRL("JsSourceLine"),	ZEND_ACC_PROTECTED TSRMLS_CC);
 	zend_declare_property_null(php_ce_v8js_exception, ZEND_STRL("JsTrace"),			ZEND_ACC_PROTECTED TSRMLS_CC);
+
+	/* V8JsTimeoutException Class */
+	INIT_CLASS_ENTRY(ce, "V8JsTimeoutException", NULL);
+	php_ce_v8js_timeout_exception = zend_register_internal_class_ex(&ce, zend_exception_get_default(TSRMLS_C), NULL TSRMLS_CC);
+	php_ce_v8js_timeout_exception->ce_flags |= ZEND_ACC_FINAL;
 
 	REGISTER_INI_ENTRIES();
 
