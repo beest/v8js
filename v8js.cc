@@ -692,7 +692,7 @@ void v8_sig_fn(int sig)
 
  	// Terminate the V8 thread execution
  	v8::Locker locker;
- 	v8::V8::TerminateExecution(v8::V8::GetCurrentThreadId());
+ 	v8::V8::TerminateExecution();
 
  	// Exit the thread immediately
  	pthread_exit(0);
@@ -793,6 +793,9 @@ void *v8_thread_fn(void *data)
 	if (!result.IsEmpty()) {
 		v8js_to_zval(result, tc->return_value, tc->flags TSRMLS_CC);
 	}
+
+	// Indicate that the V8 code execution has finished
+	tc->execution_finished = true;
 
 	if (tc->threaded)
 	{
