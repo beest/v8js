@@ -250,6 +250,8 @@ static HashTable *php_v8js_v8_get_properties(zval *object TSRMLS_DC) /* {{{ */
 	ALLOC_HASHTABLE(retval);
 	zend_hash_init(retval, 0, NULL, ZVAL_PTR_DTOR, 0);
 
+	v8::Locker locker;
+
 	v8::HandleScope local_scope;
 	v8::Handle<v8::Context> temp_context = v8::Context::New();
 	v8::Context::Scope temp_scope(temp_context);
@@ -257,6 +259,7 @@ static HashTable *php_v8js_v8_get_properties(zval *object TSRMLS_DC) /* {{{ */
 	if (php_v8js_v8_get_properties_hash(obj->v8obj, retval, obj->flags TSRMLS_CC) == SUCCESS) {
 		return retval;
 	}
+
 	return NULL;
 }
 /* }}} */
@@ -688,7 +691,6 @@ void v8_sig_fn(int sig)
  	// Terminate the V8 thread execution
  	v8::Locker locker;
  	v8::V8::TerminateExecution(v8::V8::GetCurrentThreadId());
- 	v8::Unlocker unlocker;
 
  	// Exit the thread immediately
  	pthread_exit(0);
@@ -748,9 +750,6 @@ void *v8_thread_fn(void *data)
 	c->in_execution++;
 	v8::Local<v8::Value> result = script->Run();
 	c->in_execution--;
-
-	// Unlock the thread scope
-	v8::Unlocker unlocker;
 
 	// Script possibly terminated, return immediately
 	if (!try_catch.CanContinue()) {
@@ -1119,6 +1118,7 @@ static const zend_function_entry v8js_methods[] = { /* {{{ */
 
 static void php_v8js_write_property(zval *object, zval *member, zval *value ZEND_HASH_KEY_DC TSRMLS_DC) /* {{{ */
 {
+	v8::Locker locker;
 	V8JS_BEGIN_CTX(c, object)
 
 	v8::HandleScope handle_scope;
@@ -1136,6 +1136,7 @@ static void php_v8js_write_property(zval *object, zval *member, zval *value ZEND
 
 static void php_v8js_unset_property(zval *object, zval *member ZEND_HASH_KEY_DC TSRMLS_DC) /* {{{ */
 {
+	v8::Locker locker;
 	V8JS_BEGIN_CTX(c, object)
 
 	v8::HandleScope handle_scope;
