@@ -682,8 +682,6 @@ struct php_v8js_thread_ctx
 
 void v8_sig_fn(int sig)
 {
-printf("Caught signal: %d\n", sig);
-
  	// Get the thread-specific data
  	php_v8js_thread_ctx *tc = (php_v8js_thread_ctx *)pthread_getspecific(php_v8js_thread_ctx_key);
 
