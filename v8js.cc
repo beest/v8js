@@ -599,6 +599,8 @@ static PHP_METHOD(V8Js, __construct)
 	/* Declare configuration for extensions */
 	v8::ExtensionConfiguration extension_conf(exts_count, exts);
 
+	v8::Locker locker;
+
 	/* Handle scope */
 	v8::HandleScope handle_scope;
 
