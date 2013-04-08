@@ -39,6 +39,7 @@ extern "C" {
 #include "php_v8js_macros.h"
 
 #include <pthread.h>
+#include <thread>
 #include <signal.h>
 
 /* Forward declarations */
@@ -112,6 +113,7 @@ zend_class_entry *php_ce_v8_function;
 static zend_class_entry *php_ce_v8js;
 static zend_class_entry *php_ce_v8js_exception;
 static zend_class_entry *php_ce_v8js_timeout_exception;
+static zend_class_entry *php_ce_v8js_terminated_exception;
 /* }}} */
 
 /* {{{ Object Handlers */
@@ -250,7 +252,8 @@ static HashTable *php_v8js_v8_get_properties(zval *object TSRMLS_DC) /* {{{ */
 	ALLOC_HASHTABLE(retval);
 	zend_hash_init(retval, 0, NULL, ZVAL_PTR_DTOR, 0);
 
-	v8::Locker locker;
+	php_v8js_ctx *c = (php_v8js_ctx *)v8::Context::GetCurrent()->GetAlignedPointerFromEmbedderData(1);
+	v8::Locker locker(c->isolate);
 
 	v8::HandleScope local_scope;
 	v8::Handle<v8::Context> temp_context = v8::Context::New();
@@ -581,6 +584,8 @@ static PHP_METHOD(V8Js, __construct)
 	c->pending_exception = NULL;
 	c->in_execution = 0;
 	c->module_loader = NULL;
+	c->isolate = v8::Isolate::New();
+	c->execution_terminated = false;
 
 	/* Initialize V8 */
 	php_v8js_init(TSRMLS_C);
@@ -599,10 +604,11 @@ static PHP_METHOD(V8Js, __construct)
 	/* Declare configuration for extensions */
 	v8::ExtensionConfiguration extension_conf(exts_count, exts);
 
-	v8::Locker locker;
+	v8::Locker locker(c->isolate);
+	v8::Isolate::Scope isolate_scope(c->isolate);
 
 	/* Handle scope */
-	v8::HandleScope handle_scope;
+	v8::HandleScope handle_scope(c->isolate);
 
 	/* Create global template for global object */
 	if (V8JSG(global_template).IsEmpty()) {
@@ -615,6 +621,7 @@ static PHP_METHOD(V8Js, __construct)
 
 	/* Create context */
 	c->context = v8::Context::New(&extension_conf, V8JSG(global_template)->InstanceTemplate());
+	c->context->SetAlignedPointerInEmbedderData(1, c);
 
 	if (exts) {
 		_php_v8js_free_ext_strarr(exts, exts_count);
@@ -667,6 +674,8 @@ static PHP_METHOD(V8Js, __construct)
 	} \
 	\
 	(ctx) = (php_v8js_ctx *) zend_object_store_get_object(object TSRMLS_CC); \
+	v8::Locker locker((ctx)->isolate); \
+	v8::Isolate::Scope isolate_scope((ctx)->isolate); \
 	v8::Context::Scope context_scope((ctx)->context);
 
 struct php_v8js_thread_ctx
@@ -691,8 +700,10 @@ void v8_sig_fn(int sig)
  	php_v8js_thread_ctx *tc = (php_v8js_thread_ctx *)pthread_getspecific(php_v8js_thread_ctx_key);
 
  	// Terminate the V8 thread execution
- 	v8::Locker locker;
- 	v8::V8::TerminateExecution();
+ 	v8::Locker locker(tc->c->isolate);
+ 	v8::Isolate::Scope isolate_scope(tc->c->isolate);
+printf("Terminated execution\n");
+ 	v8::V8::TerminateExecution(tc->c->isolate);
 
  	// Exit the thread immediately
  	pthread_exit(0);
@@ -722,7 +733,8 @@ void *v8_thread_fn(void *data)
 	php_v8js_ctx *c = tc->c;
 
 	// Lock the thread scope
-	v8::Locker locker;
+	v8::Locker locker(c->isolate);
+	v8::Isolate::Scope isolate_scope(c->isolate);
 
 	// Start the V8JS context
 	v8::Context::Scope context_scope(c->context);
@@ -730,7 +742,7 @@ void *v8_thread_fn(void *data)
 	// Catch JS exceptions
 	v8::TryCatch try_catch;
 
-	v8::HandleScope handle_scope;
+	v8::HandleScope handle_scope(c->isolate);
 
 	// Set script identifier
 	v8::Local<v8::String> sname = tc->identifier_len ? V8JS_SYML(tc->identifier, tc->identifier_len) : V8JS_SYM("V8Js::executeString()");
@@ -844,6 +856,21 @@ static PHP_METHOD(V8Js, executeString)
 
 	php_v8js_ctx *c = (php_v8js_ctx *)zend_object_store_get_object(getThis() TSRMLS_CC);
 
+	if (c->execution_terminated)
+	{
+		// Throw a terminated exception
+		//zend_throw_exception(php_ce_v8js_terminated_exception, "V8 engine has been terminated", 0 TSRMLS_CC);
+		//return;
+
+		//c->isolate->Dispose();
+
+		c->isolate = v8::Isolate::New();
+	}
+	else
+	{
+		printf("V8 is OK\n");
+	}
+
   	php_v8js_thread_ctx *tc = (php_v8js_thread_ctx *)malloc(sizeof(php_v8js_thread_ctx));
   	tc->c = c;
   	tc->identifier = identifier;
@@ -877,9 +904,14 @@ static PHP_METHOD(V8Js, executeString)
 		{
 			// Kill the V8 execution thread
 			pthread_kill(v8_thread, SIGUSR1);
+			pthread_join(v8_thread, &ret);
 
 			// Throw a timeout exception
 			zend_throw_exception(php_ce_v8js_timeout_exception, "Script timeout exceeded", 0 TSRMLS_CC);
+
+			// Indicate that execution has terminated in this V8Js instance
+			// This leaves the V8 context 
+			c->execution_terminated = true;
 		}
 	}
 	else
@@ -1123,10 +1155,9 @@ static const zend_function_entry v8js_methods[] = { /* {{{ */
 
 static void php_v8js_write_property(zval *object, zval *member, zval *value ZEND_HASH_KEY_DC TSRMLS_DC) /* {{{ */
 {
-	v8::Locker locker;
 	V8JS_BEGIN_CTX(c, object)
 
-	v8::HandleScope handle_scope;
+	v8::HandleScope handle_scope(c->isolate);
 
 	/* Global PHP JS object */
 	v8::Local<v8::Object> jsobj = V8JS_GLOBAL->Get(c->object_name)->ToObject();
@@ -1141,10 +1172,9 @@ static void php_v8js_write_property(zval *object, zval *member, zval *value ZEND
 
 static void php_v8js_unset_property(zval *object, zval *member ZEND_HASH_KEY_DC TSRMLS_DC) /* {{{ */
 {
-	v8::Locker locker;
 	V8JS_BEGIN_CTX(c, object)
 
-	v8::HandleScope handle_scope;
+	v8::HandleScope handle_scope(c->isolate);
 
 	/* Global PHP JS object */
 	v8::Local<v8::Object> jsobj = V8JS_GLOBAL->Get(c->object_name)->ToObject();
@@ -1332,6 +1362,11 @@ static PHP_MINIT_FUNCTION(v8js)
 	INIT_CLASS_ENTRY(ce, "V8JsTimeoutException", NULL);
 	php_ce_v8js_timeout_exception = zend_register_internal_class_ex(&ce, zend_exception_get_default(TSRMLS_C), NULL TSRMLS_CC);
 	php_ce_v8js_timeout_exception->ce_flags |= ZEND_ACC_FINAL;
+
+	/* V8JsTerminatedException Class */
+	INIT_CLASS_ENTRY(ce, "V8JsTerminatedException", NULL);
+	php_ce_v8js_terminated_exception = zend_register_internal_class_ex(&ce, zend_exception_get_default(TSRMLS_C), NULL TSRMLS_CC);
+	php_ce_v8js_terminated_exception->ce_flags |= ZEND_ACC_FINAL;
 
 	REGISTER_INI_ENTRIES();
 

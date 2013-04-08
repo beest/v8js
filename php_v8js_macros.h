@@ -103,6 +103,8 @@ struct php_v8js_ctx {
   zval *pending_exception;
   int in_execution;
   zval *module_loader;
+  v8::Isolate *isolate;
+  bool execution_terminated;
 };
 /* }}} */
 

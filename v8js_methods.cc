@@ -52,15 +52,16 @@ V8JS_METHOD(sleep) /* {{{ */
 /* global.print - php print() */
 V8JS_METHOD(print) /* {{{ */
 {
-	int ret = 0;
+	//int ret = 0;
 	TSRMLS_FETCH();
 
 	for (int i = 0; i < args.Length(); i++) {
 		v8::String::Utf8Value str(args[i]);
 		const char *cstr = ToCString(str);
-		ret = PHPWRITE(cstr, strlen(cstr));
+		//ret = PHPWRITE(cstr, strlen(cstr));
+		printf(cstr);
 	}
-	return V8JS_INT(ret);
+	return V8JS_INT(0);
 }
 /* }}} */
 
