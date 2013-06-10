@@ -140,7 +140,7 @@ static zval *php_v8js_v8_read_property(zval *object, zval *member, int type ZEND
 		/* Skip any prototype properties */
 		if (jsObj->HasRealNamedProperty(jsKey) || jsObj->HasRealNamedCallbackProperty(jsKey)) {
 			jsVal = jsObj->Get(jsKey);
-			
+
 			if (jsVal->IsObject()) {
 				ALLOC_INIT_ZVAL(retval);
 				Z_SET_REFCOUNT_P(retval, 0);
@@ -231,12 +231,16 @@ static HashTable *php_v8js_v8_get_properties(zval *object TSRMLS_DC) /* {{{ */
 	v8::Locker locker(obj->isolate);
 	v8::Isolate::Scope isolate_scope(obj->isolate);
 	v8::HandleScope local_scope(obj->isolate);
-	v8::Handle<v8::Context> temp_context = v8::Context::New();
+	v8::Persistent<v8::Context> temp_context = v8::Context::New();
 	v8::Context::Scope temp_scope(temp_context);
 
 	if (php_v8js_v8_get_properties_hash(obj->v8obj, retval, obj->flags, obj->isolate TSRMLS_CC) == SUCCESS) {
+		temp_context.Dispose();
 		return retval;
 	}
+
+	temp_context.Dispose();
+
 	return NULL;
 }
 /* }}} */
@@ -256,7 +260,7 @@ static zend_function *php_v8js_v8_get_method(zval **object_ptr, char *method, in
 
 	if (!obj->v8obj.IsEmpty() && obj->v8obj->IsObject() && !obj->v8obj->IsFunction()) {
 		v8::Local<v8::Object> jsObj = obj->v8obj->ToObject();
-		
+
 		if (jsObj->Has(jsKey) && jsObj->Get(jsKey)->IsFunction()) {
 			f = (zend_function *) ecalloc(1, sizeof(*f));
 			f->type = ZEND_OVERLOADED_FUNCTION_TEMPORARY;
@@ -368,7 +372,7 @@ static zend_object_value php_v8js_v8_new(zend_class_entry *ce TSRMLS_DC) /* {{{ 
 {
 	zend_object_value retval;
 	php_v8js_object *c;
-	
+
 	c = (php_v8js_object *) ecalloc(1, sizeof(*c));
 
 	zend_object_std_init(&c->std, ce TSRMLS_CC);
@@ -407,7 +411,7 @@ static void php_v8js_free_storage(void *object TSRMLS_DC) /* {{{ */
 	if (c->pending_exception) {
 		zval_ptr_dtor(&c->pending_exception);
 	}
-	
+
 	c->object_name.Dispose();
 
 	/* Clear global object, dispose context */
@@ -1106,7 +1110,7 @@ static void php_v8js_unset_property(zval *object, zval *member ZEND_HASH_KEY_DC 
 
 	/* Global PHP JS object */
 	v8::Local<v8::Object> jsobj = V8JS_GLOBAL->Get(c->object_name)->ToObject();
-	
+
 	/* Delete value from PHP JS object */
 	jsobj->ForceDelete(V8JS_SYML(Z_STRVAL_P(member), Z_STRLEN_P(member)));
 
@@ -1211,7 +1215,7 @@ V8JS_EXCEPTION_METHOD(JsSourceLine);
 
 /* {{{ proto string V8JsScriptException::getJsTrace()
  */
-V8JS_EXCEPTION_METHOD(JsTrace);	
+V8JS_EXCEPTION_METHOD(JsTrace);
 /* }}} */
 
 static const zend_function_entry v8js_script_exception_methods[] = { /* {{{ */
