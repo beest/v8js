@@ -614,11 +614,15 @@ static void php_v8js_free_storage(void *object TSRMLS_DC) /* {{{ */
 	}
 	c->context.~Persistent();
 
-	/* 
-	 * Call to v8::V8::IdleNotification() removed.
-	 * This should not be necessary; V8 will free all memory that it can on exit.
-	 * Also, in some circumstances this was causing a segfault.
+	/* Force garbage collection on our isolate, this is needed that V8 triggers
+	 * our MakeWeak callbacks.  Without these we won't remove our references
+	 * on the PHP objects leading to memory leaks in PHP context.
 	 */
+	{
+		v8::Locker locker(c->isolate);
+		v8::Isolate::Scope isolate_scope(c->isolate);
+		while(!v8::V8::IdleNotification()) {};
+	}
 
 	/* Dispose yet undisposed weak refs */
 	for (std::map<zval *, v8js_persistent_obj_t>::iterator it = c->weak_objects.begin();
