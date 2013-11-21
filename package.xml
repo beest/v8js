@@ -10,25 +10,25 @@ http://pear.php.net/dtd/package-2.0.xsd">
   This extension embeds the Google&apos;s V8 Javascript Engine into PHP.
  </description>
  <lead>
-  <name>Jani Taskinen</name>
-  <user>jani</user>
-  <email>jani@php.net</email>
+  <name>Patrick Reilly</name>
+  <user>preilly</user>
+  <email>preilly@php.net</email>
   <active>yes</active>
  </lead>
-
- <date>2012-07-06</date>
- <version><release>0.1.3</release><api>0.1.3</api></version>
+ <date>2013-09-29</date>
+ <version><release>0.1.5</release><api>0.1.5</api></version>
  <stability><release>beta</release><api>beta</api></stability>
- <license uri="http://www.php.net/license">PHP</license>
+ <license uri="http://www.php.net/license">The MIT License (MIT)</license>
  <notes>
-- Fixed crash bug in setting v8.flags ini directive.
-- Added notice to registerExtension() if trying to use it when V8 is already initialized.
+- Fix package
  </notes>
-
  <contents>
   <dir name="/">
    <file name="CREDITS" role="doc" />
+   <file name="LICENSE" role="doc" />
+   <file name="README.md" role="doc" />
    <file name="config.m4" role="src" />
+   <file name="config.w32" role="src" />
    <file name="Makefile.frag" role="src" />
    <file name="v8js.cc" role="src" />
    <file name="v8js_convert.cc" role="src" />
@@ -36,12 +36,64 @@ http://pear.php.net/dtd/package-2.0.xsd">
    <file name="v8js_variables.cc" role="src" />
    <file name="php_v8js.h" role="src" />
    <file name="php_v8js_macros.h" role="src" />
-  </dir> <!-- / -->
+   <file name="v8js_commonjs.cc" role="src" />
+   <file name="test.php" role="src" />
+   <file name="TODO" role="src" />
+  <dir name="samples">
+   <file name="dlopen.supp" role="src" />
+   <file name="test_callback.php" role="php" />
+   <file name="test_call.php" role="php" />
+   <file name="test_closure.php" role="php" />
+   <file name="test_crash.php" role="php" />
+   <file name="test_date.php" role="php" />
+   <file name="test_dumper.php" role="php" />
+   <file name="test_exception2.php" role="php" />
+   <file name="test_exception.php" role="php" />
+   <file name="test_extend.php" role="php" />
+   <file name="test_extension.php" role="php" />
+   <file name="test_method.php" role="php" />
+ </dir>
+  <dir name="tests">
+   <file name="basic.phpt" role="test" />
+   <file name="callbacks.phpt" role="test" />
+   <file name="closures_basic.phpt" role="test" />
+   <file name="closures_dynamic.phpt" role="test" />
+   <file name="commonjs_modules.phpt" role="test" />
+   <file name="construct.phpt" role="test" />
+   <file name="context_preserving.phpt" role="test" />
+   <file name="context_separation.phpt" role="test" />
+   <file name="context_temp_creation.phpt" role="test" />
+   <file name="exception.phpt" role="test" />
+   <file name="exception_propagation_1.phpt" role="test" />
+   <file name="exception_propagation_2.phpt" role="test" />
+   <file name="exception_propagation_3.phpt" role="test" />
+   <file name="execute_flags_args.phpt" role="test" />
+   <file name="execute_flags.phpt" role="test" />
+   <file name="extensions_basic.phpt" role="test" />
+   <file name="extensions_circular_dependency.phpt" role="test" />
+   <file name="get_accessor.phpt" role="test" />
+   <file name="js-construct-basic.phpt" role="test" />
+   <file name="js-construct-direct-call.phpt" role="test" />
+   <file name="js-construct-protected-ctor.phpt" role="test" />
+   <file name="js-construct-with-ctor.phpt" role="test" />
+   <file name="memory_limit.phpt" role="test" />
+   <file name="multi-object.phpt" role="test" />
+   <file name="multi.phpt" role="test" />
+   <file name="object_method_call.phpt" role="test" />
+   <file name="object.phpt" role="test" />
+   <file name="object_prototype.phpt" role="test" />
+   <file name="object_reuse.phpt" role="test" />
+   <file name="return_value.phpt" role="test" />
+   <file name="skipif.inc" role="test" />
+   <file name="time_limit.phpt" role="test" />
+   <file name="variable_passing.phpt" role="test" />
+</dir>
+</dir>
  </contents>
  <dependencies>
   <required>
    <php>
-    <min>5.3.3</min>
+    <min>5.4</min>
    </php>
    <pearinstaller>
     <min>1.4.0</min>
@@ -53,6 +105,38 @@ http://pear.php.net/dtd/package-2.0.xsd">
   <configureoption default="autodetect" name="with-v8js" prompt="Please provide the installation prefix of libv8" />
  </extsrcrelease>
  <changelog>
+  <release>
+    <version><release>0.1.4</release><api>0.1.4</api></version>
+    <stability><release>beta</release><api>beta</api></stability>
+    <license uri="http://www.php.net/license">The MIT License (MIT)</license>
+    <date>2013-09-28</date>
+    <notes>
+    - Added time/memory limit support
+    - Moved to The MIT License (MIT)
+    </notes>
+  </release>
+  <release>
+    <version><release>0.1.3</release><api>0.1.3</api></version>
+    <stability><release>beta</release><api>beta</api></stability>
+    <date>2012-07-06</date>
+   <license uri="http://www.php.net/license">PHP</license>
+   <notes>
+    - Fixed build in PHP 5.4+
+    - Fixed bug #59553 (can't build due to missing class member)
+    - Fixed crash bug in setting v8.flags ini directive.
+    - Added notice to registerExtension() if trying to use it when V8 is already initialized.
+   </notes>
+  </release>
+  <release>
+   <version><release>0.1.1</release><api>0.1.1</api></version>
+   <stability><release>beta</release><api>beta</api></stability>
+   <date>2010-12-31</date>
+   <license uri="http://www.php.net/license">PHP</license>
+   <notes>
+- Fixed crash bug in setting v8.flags ini directive.
+- Added notice to registerExtension() if trying to use it when V8 is already initialized.
+   </notes>
+  </release>
   <release>
    <date>2010-12-30</date>
    <version><release>0.1.0</release><api>0.1.0</api></version>

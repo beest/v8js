@@ -2,15 +2,9 @@
   +----------------------------------------------------------------------+
   | PHP Version 5                                                        |
   +----------------------------------------------------------------------+
-  | Copyright (c) 1997-2012 The PHP Group                                |
+  | Copyright (c) 1997-2013 The PHP Group                                |
   +----------------------------------------------------------------------+
-  | This source file is subject to version 3.01 of the PHP license,      |
-  | that is bundled with this package in the file LICENSE, and is        |
-  | available through the world-wide-web at the following url:           |
-  | http://www.php.net/license/3_01.txt                                  |
-  | If you did not receive a copy of the PHP license and are unable to   |
-  | obtain it through the world-wide-web, please send a note to          |
-  | license@php.net so we can mail you a copy immediately.               |
+  | http://www.opensource.org/licenses/mit-license.php  MIT License      |
   +----------------------------------------------------------------------+
   | Author: Jani Taskinen <jani.taskinen@iki.fi>                         |
   | Author: Patrick Reilly <preilly@php.net>                             |
@@ -31,37 +25,38 @@ extern "C" {
 #include <v8.h>
 #include <string>
 
-struct php_v8js_accessor_ctx
-{
-    char *variable_name_string;
-    uint variable_name_string_len;
-    v8::Isolate *isolate;
-};
-
-static v8::Handle<v8::Value> php_v8js_fetch_php_variable(v8::Local<v8::String> name, const v8::AccessorInfo &info) /* {{{ */
+static void php_v8js_fetch_php_variable(v8::Local<v8::String> name, const v8::PropertyCallbackInfo<v8::Value>& info) /* {{{ */
 {
     v8::Handle<v8::External> data = v8::Handle<v8::External>::Cast(info.Data());
     php_v8js_accessor_ctx *ctx = static_cast<php_v8js_accessor_ctx *>(data->Value());
+	v8::Isolate *isolate = ctx->isolate;
 	zval **variable;
 
-	TSRMLS_FETCH();
+	V8JS_TSRMLS_FETCH();
 
 	zend_is_auto_global(ctx->variable_name_string, ctx->variable_name_string_len TSRMLS_CC);
 
 	if (zend_hash_find(&EG(symbol_table), ctx->variable_name_string, ctx->variable_name_string_len + 1, (void **) &variable) == SUCCESS) {
-		return zval_to_v8js(*variable, ctx->isolate TSRMLS_CC);
+		info.GetReturnValue().Set(zval_to_v8js(*variable, isolate TSRMLS_CC));
+		return;
 	}
-
-	return v8::Undefined();
 }
 /* }}} */
 
-void php_v8js_register_accessors(v8::Local<v8::ObjectTemplate> php_obj, zval *array, v8::Isolate *isolate TSRMLS_DC) /* {{{ */
+void php_v8js_accessor_ctx_dtor(php_v8js_accessor_ctx *ctx TSRMLS_DC) /* {{{ */
+{
+	efree(ctx->variable_name_string);
+	efree(ctx);
+}
+/* }}} */
+
+void php_v8js_register_accessors(std::vector<php_v8js_accessor_ctx*> *accessor_list, v8::Local<v8::FunctionTemplate> php_obj_t, zval *array, v8::Isolate *isolate TSRMLS_DC) /* {{{ */
 {
 	char *property_name;
 	uint property_name_len;
 	ulong index;
 	zval **item;
+	v8::Local<v8::ObjectTemplate> php_obj = php_obj_t->InstanceTemplate();
 
 	for (zend_hash_internal_pointer_reset(Z_ARRVAL_P(array));
 		zend_hash_get_current_data(Z_ARRVAL_P(array), (void **) &item) != FAILURE;
@@ -91,7 +86,10 @@ void php_v8js_register_accessors(v8::Local<v8::ObjectTemplate> php_obj, zval *ar
         ctx->isolate = isolate;
 
 		/* Set the variable fetch callback for given symbol on named property */
-		php_obj->SetAccessor(V8JS_STRL(property_name, property_name_len - 1), php_v8js_fetch_php_variable, NULL, v8::External::New(ctx), v8::PROHIBITS_OVERWRITING, v8::ReadOnly);
+		php_obj->SetAccessor(V8JS_STRL(property_name, property_name_len - 1), php_v8js_fetch_php_variable, NULL, v8::External::New(ctx), v8::PROHIBITS_OVERWRITING, v8::ReadOnly, v8::AccessorSignature::New(php_obj_t));
+
+		/* record the context so we can free it later */
+		accessor_list->push_back(ctx);
 	}
 }
 /* }}} */

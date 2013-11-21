@@ -2,22 +2,16 @@
   +----------------------------------------------------------------------+
   | PHP Version 5                                                        |
   +----------------------------------------------------------------------+
-  | Copyright (c) 1997-2012 The PHP Group                                |
+  | Copyright (c) 1997-2013 The PHP Group                                |
   +----------------------------------------------------------------------+
-  | This source file is subject to version 3.01 of the PHP license,      |
-  | that is bundled with this package in the file LICENSE, and is        |
-  | available through the world-wide-web at the following url:           |
-  | http://www.php.net/license/3_01.txt                                  |
-  | If you did not receive a copy of the PHP license and are unable to   |
-  | obtain it through the world-wide-web, please send a note to          |
-  | license@php.net so we can mail you a copy immediately.               |
+  | http://www.opensource.org/licenses/mit-license.php  MIT License      |
   +----------------------------------------------------------------------+
   | Author: Jani Taskinen <jani.taskinen@iki.fi>                         |
   | Author: Patrick Reilly <preilly@php.net>                             |
   +----------------------------------------------------------------------+
 */
 
-/* $Id:$ */
+/* $Id$ */
 
 #ifndef PHP_V8JS_MACROS_H
 #define PHP_V8JS_MACROS_H
@@ -35,23 +29,54 @@ extern "C" {
 
 #include <map>
 #include <vector>
+#include <mutex>
 
 /* V8Js Version */
 #define V8JS_VERSION "0.1.3"
 
 /* Helper macros */
-#define V8JS_SYM(v)			v8::String::NewSymbol(v, sizeof(v) - 1)
-#define V8JS_SYML(v, l)		v8::String::NewSymbol(v, l)
-#define V8JS_STR(v)			v8::String::New(v)
-#define V8JS_STRL(v, l)		v8::String::New(v, l)
-#define V8JS_INT(v)			v8::Integer::New(v)
-#define V8JS_FLOAT(v)		v8::Number::New(v)
-#define V8JS_BOOL(v)		v8::Boolean::New(v)
-#define V8JS_NULL			v8::Null()
+#define V8JS_SYM(v)			v8::String::NewFromUtf8(isolate, v, v8::String::kInternalizedString, sizeof(v) - 1)
+#define V8JS_SYML(v, l)		v8::String::NewFromUtf8(isolate, v, v8::String::kInternalizedString, l)
+#define V8JS_STR(v)			v8::String::NewFromUtf8(isolate, v)
+#define V8JS_STRL(v, l)		v8::String::NewFromUtf8(isolate, v, v8::String::kNormalString, l)
+#define V8JS_INT(v)			v8::Integer::New(v, isolate)
+#define V8JS_FLOAT(v)		v8::Number::New(isolate, v)
+#define V8JS_BOOL(v)		((v)?v8::True(isolate):v8::False(isolate))
+#define V8JS_NULL			v8::Null(isolate)
+#define V8JS_UNDEFINED		v8::Undefined(isolate)
 #define V8JS_MN(name)		v8js_method_##name
-#define V8JS_METHOD(name)	v8::Handle<v8::Value> V8JS_MN(name)(const v8::Arguments& args)
+#define V8JS_METHOD(name)	void V8JS_MN(name)(const v8::FunctionCallbackInfo<v8::Value>& info)
 #define V8JS_THROW(type, message, message_len)	v8::ThrowException(v8::Exception::type(V8JS_STRL(message, message_len)))
 #define V8JS_GLOBAL			v8::Context::GetCurrent()->Global()
+
+#if PHP_V8_API_VERSION < 3022000
+/* CopyablePersistentTraits is only part of V8 from 3.22.0 on,
+   to be compatible with lower versions add our own (compatible) version. */
+namespace v8 {
+	template<class T>
+	struct CopyablePersistentTraits {
+		typedef Persistent<T, CopyablePersistentTraits<T> > CopyablePersistent;
+		static const bool kResetInDestructor = true;
+		template<class S, class M>
+#if PHP_V8_API_VERSION >= 3021015
+		static V8_INLINE void Copy(const Persistent<S, M>& source,
+								   CopyablePersistent* dest)
+#else
+		V8_INLINE(static void Copy(const Persistent<S, M>& source,
+								   CopyablePersistent* dest))
+#endif
+		{
+			// do nothing, just allow copy
+		}
+	};
+}
+#endif
+
+/* Abbreviate long type names */
+typedef v8::Persistent<v8::FunctionTemplate, v8::CopyablePersistentTraits<v8::FunctionTemplate> > v8js_tmpl_t;
+
+/* Hidden field name used to link JS wrappers with underlying PHP object */
+#define PHPJS_OBJECT_KEY "phpjs::object"
 
 /* Helper macros */
 #if PHP_V8_API_VERSION < 2005009
@@ -67,9 +92,19 @@ extern "C" {
 #if ZEND_MODULE_API_NO >= 20100409
 # define ZEND_HASH_KEY_DC , const zend_literal *key
 # define ZEND_HASH_KEY_CC , key
+# define ZEND_HASH_KEY_NULL , NULL
 #else
 # define ZEND_HASH_KEY_DC
 # define ZEND_HASH_KEY_CC
+# define ZEND_HASH_KEY_NULL
+#endif
+
+/* method signatures of zend_update_property and zend_read_property were
+ * declared as 'char *' instead of 'const char *' before PHP 5.4 */
+#if ZEND_MODULE_API_NO >= 20100525
+# define V8JS_CONST
+#else
+# define V8JS_CONST (char *)
 #endif
 
 /* Global flags */
@@ -80,8 +115,12 @@ extern "C" {
 #define V8JS_FLAG_NONE			(1<<0)
 #define V8JS_FLAG_FORCE_ARRAY	(1<<1)
 
+#define V8JS_DEBUG_AUTO_BREAK_NEVER		0
+#define V8JS_DEBUG_AUTO_BREAK_ONCE		1
+#define V8JS_DEBUG_AUTO_BREAK_ALWAYS	2
+
 /* Extracts a C string from a V8 Utf8Value. */
-static const char * ToCString(const v8::String::Utf8Value &value) /* {{{ */
+static inline const char * ToCString(const v8::String::Utf8Value &value) /* {{{ */
 {
 	return *value ? *value : "<string conversion failed>";
 }
@@ -103,8 +142,18 @@ v8::Handle<v8::Value> zval_to_v8js(zval *, v8::Isolate * TSRMLS_DC);
 /* Convert V8 value into zval */
 int v8js_to_zval(v8::Handle<v8::Value>, zval *, int, v8::Isolate * TSRMLS_DC);
 
+struct php_v8js_accessor_ctx
+{
+    char *variable_name_string;
+    uint variable_name_string_len;
+    v8::Isolate *isolate;
+};
+
+void php_v8js_accessor_ctx_dtor(php_v8js_accessor_ctx * TSRMLS_DC);
+
 /* Register accessors into passed object */
-void php_v8js_register_accessors(v8::Local<v8::ObjectTemplate>, zval *, v8::Isolate * TSRMLS_DC);
+void php_v8js_register_accessors(std::vector<php_v8js_accessor_ctx*> *accessor_list, v8::Local<v8::FunctionTemplate>, zval *, v8::Isolate * TSRMLS_DC);
+
 
 /* {{{ Context container */
 struct php_v8js_ctx {
@@ -121,8 +170,19 @@ struct php_v8js_ctx {
   zval *module_loader;
   std::vector<char *> modules_stack;
   std::vector<char *> modules_base;
+  std::map<const char *,v8js_tmpl_t> template_cache;
+  std::vector<php_v8js_accessor_ctx *> accessor_list;
+#ifdef ZTS
+  void ***zts_ctx;
+#endif
 };
 /* }}} */
+
+#ifdef ZTS
+# define V8JS_TSRMLS_FETCH() TSRMLS_FETCH_FROM_CTX(((php_v8js_ctx *) isolate->GetData())->zts_ctx);
+#else
+# define V8JS_TSRMLS_FETCH()
+#endif
 
 // Timer context
 struct php_v8js_timer_ctx
@@ -131,17 +191,27 @@ struct php_v8js_timer_ctx
   long memory_limit;
   std::chrono::time_point<std::chrono::high_resolution_clock> time_point;
   php_v8js_ctx *v8js_ctx;
+  bool killed;
 };
+
+/* {{{ Object container */
+struct php_v8js_object {
+	zend_object std;
+	v8::Persistent<v8::Value> v8obj;
+	int flags;
+	v8::Isolate *isolate;
+	HashTable *properties;
+};
+/* }}} */
+
 
 /* Module globals */
 ZEND_BEGIN_MODULE_GLOBALS(v8js)
   int v8_initialized;
   HashTable *extensions;
-  int disposed_contexts; /* Disposed contexts since last time V8 did GC */
 
   /* Ini globals */
   char *v8_flags; /* V8 command line flags */
-  int max_disposed_contexts; /* Max disposed context allowed before forcing V8 GC */
 
   // Timer thread globals
   std::stack<php_v8js_timer_ctx *> timer_stack;
@@ -153,6 +223,8 @@ ZEND_BEGIN_MODULE_GLOBALS(v8js)
 ZEND_END_MODULE_GLOBALS(v8js)
 
 extern zend_v8js_globals v8js_globals;
+
+ZEND_EXTERN_MODULE_GLOBALS(v8js)
 
 #ifdef ZTS
 # define V8JSG(v) TSRMG(v8js_globals_id, zend_v8js_globals *, v)

@@ -61,9 +61,17 @@ try {
 	var_dump($e);
 }
 
+// Type safety
+// this is illegal, but shouldn't crash!
+try {
+	$a->executeString("PHP.myobj.mytest.call({})", "test8.js");
+} catch (V8JsScriptException $e) {
+	echo "exception: ", $e->getMessage(), "\n";
+}
+
 ?>
 ===EOF===
---EXPECT--
+--EXPECTF--
 array(2) {
   [0]=>
   string(4) "arg1"
@@ -105,15 +113,13 @@ Mon, 08 Sep 1975 09:00:00 +0000
 string(3) "foo"
 array(3) {
   [0]=>
-  object(V8Object)#4 (3) {
-    ["mytest"]=>
-    object(V8Function)#6 (0) {
-    }
-    ["mydatetest"]=>
-    object(V8Function)#7 (0) {
-    }
+  object(Testing)#%d (3) {
     ["foo"]=>
     string(8) "ORIGINAL"
+    ["my_private":"Testing":private]=>
+    string(3) "arf"
+    ["my_protected":protected]=>
+    string(4) "argh"
   }
   [1]=>
   array(3) {
@@ -131,16 +137,15 @@ array(3) {
     [1]=>
     string(3) "bar"
     [2]=>
-    object(V8Object)#5 (3) {
-      ["mytest"]=>
-      object(V8Function)#7 (0) {
-      }
-      ["mydatetest"]=>
-      object(V8Function)#6 (0) {
-      }
+    object(Testing)#%d (3) {
       ["foo"]=>
       string(8) "ORIGINAL"
+      ["my_private":"Testing":private]=>
+      string(3) "arf"
+      ["my_protected":protected]=>
+      string(4) "argh"
     }
   }
 }
+exception: test8.js:1: TypeError: Illegal invocation
 ===EOF===

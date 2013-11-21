@@ -41,14 +41,15 @@ var_dump($a->executeString("test(true);", "test8.js"));
 var_dump($a->executeString("test(false);", "test9.js"));
 ?>
 ===EOF===
---EXPECT--
+--EXPECTF--
 NULL
-object(V8Object)#3 (2) {
-  ["mytest"]=>
-  object(V8Function)#4 (0) {
-  }
+object(Testing)#%d (3) {
   ["foo"]=>
   string(8) "ORIGINAL"
+  ["my_private":"Testing":private]=>
+  string(3) "arf"
+  ["my_protected":protected]=>
+  string(4) "argh"
 }
 array(3) {
   [0]=>

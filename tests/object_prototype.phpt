@@ -7,9 +7,9 @@ Test V8::executeString() : Prototype with PHP callbacks
 $js = <<<'EOT'
 
 String.prototype.test = function(){ return PHP.test(this.toString(), arguments); };
-String.prototype.test_two = function(){ return PHP.test_two.func(this.toString(), arguments); };
+String.prototype.test_two = function(){ return PHP.test_two.__call('func', [this.toString(), arguments]); };
 Array.prototype.test = function(){ return PHP.test(this.toString(), arguments); };
-Array.prototype.test_two = function(){ return PHP.test_two.func(this.toString(), arguments); };
+Array.prototype.test_two = function(){ return PHP.test_two.__call('func', [this.toString(), arguments]); };
 
 "Foobar".test("foo", "bar");
 "Foobar".test_two("foo", "bar");
@@ -34,12 +34,12 @@ $a->test_two = new A();
 $a->executeString($js, 'foo');
 ?>
 ===EOF===
---EXPECT--
+--EXPECTF--
 array(2) {
   [0]=>
   string(6) "Foobar"
   [1]=>
-  object(V8Object)#4 (2) {
+  object(V8Object)#%d (2) {
     ["0"]=>
     string(3) "foo"
     ["1"]=>
@@ -50,7 +50,7 @@ array(2) {
   [0]=>
   string(6) "Foobar"
   [1]=>
-  object(V8Object)#4 (2) {
+  object(V8Object)#%d (2) {
     ["0"]=>
     string(3) "foo"
     ["1"]=>
@@ -61,7 +61,7 @@ array(2) {
   [0]=>
   string(5) "a,b,c"
   [1]=>
-  object(V8Object)#4 (2) {
+  object(V8Object)#%d (2) {
     ["0"]=>
     string(3) "foo"
     ["1"]=>
@@ -72,7 +72,7 @@ array(2) {
   [0]=>
   string(5) "a,b,c"
   [1]=>
-  object(V8Object)#4 (2) {
+  object(V8Object)#%d (2) {
     ["0"]=>
     string(3) "foo"
     ["1"]=>
