@@ -282,10 +282,15 @@ V8JS_METHOD(define)
 
 		zval **params[1] = {&normalised_module_id_zend};
 
-		if (FAILURE == call_user_function_ex(EG(function_table), NULL, c->module_loader, &source_zend, 1, params, 0, NULL TSRMLS_CC)) {
-			info.GetReturnValue().Set(v8::ThrowException(V8JS_SYM("Module loader callback failed")));
+		zend_try {
+			if (FAILURE == call_user_function_ex(EG(function_table), NULL, c->module_loader, &source_zend, 1, params, 0, NULL TSRMLS_CC)) {
+				info.GetReturnValue().Set(v8::ThrowException(V8JS_SYM("Module loader callback failed")));
+				return;
+			}
+		} zend_catch {
+			info.GetReturnValue().Set(v8::ThrowException(V8JS_SYM("Module loader terminated execution")));
 			return;
-		}
+		} zend_end_try();
 
 		// Check if a PHP exception was thrown
 		if (EG(exception)) {
