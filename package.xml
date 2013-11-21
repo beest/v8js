@@ -36,7 +36,7 @@ http://pear.php.net/dtd/package-2.0.xsd">
    <file name="v8js_variables.cc" role="src" />
    <file name="php_v8js.h" role="src" />
    <file name="php_v8js_macros.h" role="src" />
-   <file name="v8js_commonjs.cc" role="src" />
+   <file name="v8js_amd.cc" role="src" />
    <file name="test.php" role="src" />
    <file name="TODO" role="src" />
   <dir name="samples">
@@ -58,7 +58,7 @@ http://pear.php.net/dtd/package-2.0.xsd">
    <file name="callbacks.phpt" role="test" />
    <file name="closures_basic.phpt" role="test" />
    <file name="closures_dynamic.phpt" role="test" />
-   <file name="commonjs_modules.phpt" role="test" />
+   <file name="amd.phpt" role="test" />
    <file name="construct.phpt" role="test" />
    <file name="context_preserving.phpt" role="test" />
    <file name="context_separation.phpt" role="test" />

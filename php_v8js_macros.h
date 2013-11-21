@@ -30,6 +30,7 @@ extern "C" {
 #include <chrono>
 #include <stack>
 #include <thread>
+#include <algorithm>
 
 #include <map>
 #include <vector>
@@ -102,6 +103,7 @@ namespace v8 {
 /* Abbreviate long type names */
 typedef v8::Persistent<v8::FunctionTemplate, v8::CopyablePersistentTraits<v8::FunctionTemplate> > v8js_tmpl_t;
 typedef v8::Persistent<v8::Object, v8::CopyablePersistentTraits<v8::Object> > v8js_persistent_obj_t;
+typedef v8::Persistent<v8::Value, v8::CopyablePersistentTraits<v8::Value> > v8js_module_t;
 
 /* Hidden field name used to link JS wrappers with underlying PHP object */
 #define PHPJS_OBJECT_KEY "phpjs::object"
@@ -182,7 +184,6 @@ void php_v8js_accessor_ctx_dtor(php_v8js_accessor_ctx * TSRMLS_DC);
 /* Register accessors into passed object */
 void php_v8js_register_accessors(std::vector<php_v8js_accessor_ctx*> *accessor_list, v8::Local<v8::FunctionTemplate>, zval *, v8::Isolate * TSRMLS_DC);
 
-
 /* {{{ Context container */
 struct php_v8js_ctx {
   zend_object std;
@@ -196,8 +197,8 @@ struct php_v8js_ctx {
   bool memory_limit_hit;
   v8::Persistent<v8::FunctionTemplate> global_template;
   zval *module_loader;
-  std::vector<char *> modules_stack;
-  std::vector<char *> modules_base;
+  std::vector<const char *> modules_stack;
+  std::vector<const char *> current_modules;
   std::map<const char *,v8js_tmpl_t> template_cache;
 
   std::map<zval *, v8js_persistent_obj_t> weak_objects;
@@ -242,7 +243,6 @@ struct php_v8js_object {
 };
 /* }}} */
 
-
 /* Module globals */
 ZEND_BEGIN_MODULE_GLOBALS(v8js)
   int v8_initialized;
@@ -258,13 +258,13 @@ ZEND_BEGIN_MODULE_GLOBALS(v8js)
   std::mutex timer_mutex;
   bool timer_stop;
 
-  std::map<char *, v8::Handle<v8::Object> > modules_loaded;
-
   // fatal error unwinding
   bool fatal_error_abort;
   int error_num;
   char *error_message;
   jmp_buf *unwind_env;
+  std::map<const char *, v8js_module_t> modules_loaded;
+
 ZEND_END_MODULE_GLOBALS(v8js)
 
 extern zend_v8js_globals v8js_globals;
