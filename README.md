@@ -150,9 +150,15 @@ Javascript API
     // Terminate Javascript execution immediately.
     exit();
 
-    // CommonJS Module support to require external code.
+    // AMD support to require external code.
     // This makes use of the PHP module loader provided via V8Js::setModuleLoader (see PHP API above).
-    require("path/to/module");
+    define([
+        "path/to/module",
+        "path/to/another/module"
+    ], function(module1, module2) {
+        // Factory method is responsible for returning a module
+        // This may be an object, constructor function or any other variable 
+    });
 
 The JavaScript `in` operator, when applied to a wrapped PHP object,
 works the same as the PHP `isset()` function.  Similarly, when applied

@@ -191,7 +191,7 @@ static zval *php_v8js_v8_read_property(zval *object, zval *member, int type ZEND
 		/* Skip any prototype properties */
 		if (jsObj->HasRealNamedProperty(jsKey) || jsObj->HasRealNamedCallbackProperty(jsKey)) {
 			jsVal = jsObj->Get(jsKey);
-
+			
 			if (jsVal->IsObject()) {
 				ALLOC_INIT_ZVAL(retval);
 				Z_SET_REFCOUNT_P(retval, 0);
@@ -490,7 +490,7 @@ static zend_object_value php_v8js_v8_new(zend_class_entry *ce TSRMLS_DC) /* {{{ 
 {
 	zend_object_value retval;
 	php_v8js_object *c;
-
+	
 	c = (php_v8js_object *) ecalloc(1, sizeof(*c));
 
 	zend_object_std_init(&c->std, ce TSRMLS_CC);
@@ -597,18 +597,13 @@ static void php_v8js_free_storage(void *object TSRMLS_DC) /* {{{ */
 	}
 	c->context.~Persistent();
 
-	/* Force garbage collection on our isolate, this is needed that V8 triggers
-	 * our MakeWeak callbacks.  Without these we won't remove our references
-	 * on the PHP objects leading to memory leaks in PHP context.
+	/* 
+	 * Call to v8::V8::IdleNotification() removed.
+	 * This should not be necessary; V8 will free all memory that it can on exit.
+	 * Also, in some circumstances this was causing a segfault.
 	 */
-	{
-		v8::Locker locker(c->isolate);
-		v8::Isolate::Scope isolate_scope(c->isolate);
-		while(!v8::V8::IdleNotification()) {};
-	}
 
 	c->modules_stack.~vector();
-	c->modules_base.~vector();
 	efree(object);
 }
 /* }}} */
@@ -635,7 +630,6 @@ static zend_object_value php_v8js_new(zend_class_entry *ce TSRMLS_DC) /* {{{ */
 	new(&c->global_template) v8::Persistent<v8::FunctionTemplate>();
 
 	new(&c->modules_stack) std::vector<char*>();
-	new(&c->modules_base) std::vector<char*>();
 	new(&c->template_cache) std::map<const char *,v8js_tmpl_t>();
 	new(&c->accessor_list) std::vector<php_v8js_accessor_ctx *>();
 
@@ -1570,7 +1564,7 @@ V8JS_EXCEPTION_METHOD(JsSourceLine);
 
 /* {{{ proto string V8JsScriptException::getJsTrace()
  */
-V8JS_EXCEPTION_METHOD(JsTrace);
+V8JS_EXCEPTION_METHOD(JsTrace);	
 /* }}} */
 
 static const zend_function_entry v8js_script_exception_methods[] = { /* {{{ */
