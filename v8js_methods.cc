@@ -253,7 +253,37 @@ V8JS_METHOD(define)
 
 	v8::Isolate *isolate = c->isolate;
 
-	v8::Handle<v8::Array> dependencies = v8::Handle<v8::Array>::Cast(info[0]);
+	v8::Handle<v8::Array> dependencies;
+
+	// Used to move through the arguments depending on what is passed
+	// The dependency array is optional i.e. define(function() ...) and define([], function() ...) are identical
+	int arg = 0;
+
+	// If we have a module identifier then ignore it
+	if (info[arg]->IsString()) {
+		arg++;
+	}
+
+	if (info[arg]->IsArray()) {
+		// We have an array that we can assume is a set of dependencies
+		dependencies = v8::Handle<v8::Array>::Cast(info[arg]);
+
+		// Move to the next argument
+		++arg;
+	} else {
+		// No dependencies specified
+		dependencies = v8::Array::New(arg);
+	}
+
+	v8::Handle<v8::Function> factory;
+
+	if (info[arg]->IsFunction()) {
+		// We have a function that we can assume is a factory method
+		factory = v8::Handle<v8::Function>::Cast(info[arg]);
+	} else {
+		info.GetReturnValue().Set(v8::ThrowException(V8JS_SYM("No factory method")));
+		return;
+	}
 
 	v8::Handle<v8::Value> args[dependencies->Length()];
 
@@ -338,7 +368,6 @@ V8JS_METHOD(define)
     	args[i] = v8::Local<v8::Value>::New(isolate, php_v8js_get_module_from_map(V8JSG(modules_loaded), normalised_module_id, isolate));
 	}
 
-	v8::Handle<v8::Function> factory = v8::Handle<v8::Function>::Cast(info[1]);
 	v8::Handle<v8::Value> dependency;
 
 	c->current_modules = current_modules;
