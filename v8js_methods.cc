@@ -426,6 +426,8 @@ V8JS_METHOD(require)
 void php_v8js_register_methods(v8::Handle<v8::ObjectTemplate> global, php_v8js_ctx *c) /* {{{ */
 {
 	v8::Isolate *isolate = c->isolate;
+	v8::HandleScope local_scope(isolate);
+
 	global->Set(V8JS_SYM("exit"), v8::FunctionTemplate::New(V8JS_MN(exit)), v8::ReadOnly);
 	global->Set(V8JS_SYM("sleep"), v8::FunctionTemplate::New(V8JS_MN(sleep)), v8::ReadOnly);
 	global->Set(V8JS_SYM("print"), v8::FunctionTemplate::New(V8JS_MN(print)), v8::ReadOnly);
@@ -433,7 +435,11 @@ void php_v8js_register_methods(v8::Handle<v8::ObjectTemplate> global, php_v8js_c
 
 	c->modules_stack.push_back("");
 	global->Set(V8JS_SYM("require"), v8::FunctionTemplate::New(V8JS_MN(require), v8::External::New(c)), v8::ReadOnly);
-	global->Set(V8JS_SYM("define"), v8::FunctionTemplate::New(V8JS_MN(define), v8::External::New(c)), v8::ReadOnly);
+
+	v8::Local<v8::FunctionTemplate> define = v8::FunctionTemplate::New(V8JS_MN(define), v8::External::New(c));
+	define->Set(V8JS_SYM("amd"), v8::ObjectTemplate::New());
+
+	global->Set(V8JS_SYM("define"), define, v8::ReadOnly);
 }
 /* }}} */
 
