@@ -16,6 +16,10 @@
 #ifndef PHP_V8JS_MACROS_H
 #define PHP_V8JS_MACROS_H
 
+#if __GNUC__ == 4 && __GNUC_MINOR__ == 4
+#define _GLIBCXX_USE_NANOSLEEP 1
+#endif
+
 extern "C" {
 #include "php.h"
 #include "php_v8js.h"
@@ -34,20 +38,43 @@ extern "C" {
 /* V8Js Version */
 #define V8JS_VERSION "0.1.3"
 
+/* V8 from 3.23.12 has most v8::Anything::New constructors expect isolates
+   as their first argument.  Older versions don't provide these. */
+#if PHP_V8_API_VERSION < 3023012
+#define V8JS_NEW(t, i, v...) t::New(v)
+#else
+#define V8JS_NEW(t, i, v...) t::New(i, v)
+#endif
+
 /* Helper macros */
 #define V8JS_SYM(v)			v8::String::NewFromUtf8(isolate, v, v8::String::kInternalizedString, sizeof(v) - 1)
 #define V8JS_SYML(v, l)		v8::String::NewFromUtf8(isolate, v, v8::String::kInternalizedString, l)
 #define V8JS_STR(v)			v8::String::NewFromUtf8(isolate, v)
 #define V8JS_STRL(v, l)		v8::String::NewFromUtf8(isolate, v, v8::String::kNormalString, l)
+
+#if PHP_V8_API_VERSION < 3024010
 #define V8JS_INT(v)			v8::Integer::New(v, isolate)
+#define V8JS_UINT(v)		v8::Integer::NewFromUnsigned(v, isolate)
+#else
+#define V8JS_INT(v)			v8::Integer::New(isolate, v)
+#define V8JS_UINT(v)		v8::Integer::NewFromUnsigned(isolate, v)
+#endif
+
 #define V8JS_FLOAT(v)		v8::Number::New(isolate, v)
 #define V8JS_BOOL(v)		((v)?v8::True(isolate):v8::False(isolate))
+
+#if PHP_V8_API_VERSION <= 3023012
+#define V8JS_DATE(v)		v8::Date::New(v)
+#else
+#define V8JS_DATE(v)		v8::Date::New(isolate, v)
+#endif
+
 #define V8JS_NULL			v8::Null(isolate)
 #define V8JS_UNDEFINED		v8::Undefined(isolate)
 #define V8JS_MN(name)		v8js_method_##name
 #define V8JS_METHOD(name)	void V8JS_MN(name)(const v8::FunctionCallbackInfo<v8::Value>& info)
-#define V8JS_THROW(type, message, message_len)	v8::ThrowException(v8::Exception::type(V8JS_STRL(message, message_len)))
-#define V8JS_GLOBAL			v8::Context::GetCurrent()->Global()
+#define V8JS_THROW(isolate, type, message, message_len)	(isolate)->ThrowException(v8::Exception::type(V8JS_STRL(message, message_len)))
+#define V8JS_GLOBAL(isolate)			((isolate)->GetCurrentContext()->Global())
 
 #if PHP_V8_API_VERSION < 3022000
 /* CopyablePersistentTraits is only part of V8 from 3.22.0 on,
@@ -74,6 +101,7 @@ namespace v8 {
 
 /* Abbreviate long type names */
 typedef v8::Persistent<v8::FunctionTemplate, v8::CopyablePersistentTraits<v8::FunctionTemplate> > v8js_tmpl_t;
+typedef v8::Persistent<v8::Object, v8::CopyablePersistentTraits<v8::Object> > v8js_persistent_obj_t;
 
 /* Hidden field name used to link JS wrappers with underlying PHP object */
 #define PHPJS_OBJECT_KEY "phpjs::object"
@@ -108,8 +136,8 @@ typedef v8::Persistent<v8::FunctionTemplate, v8::CopyablePersistentTraits<v8::Fu
 #endif
 
 /* Global flags */
-#define V8JS_GLOBAL_SET_FLAGS(flags)	V8JS_GLOBAL->SetHiddenValue(V8JS_SYM("__php_flags__"), V8JS_INT(flags))
-#define V8JS_GLOBAL_GET_FLAGS()			V8JS_GLOBAL->GetHiddenValue(V8JS_SYM("__php_flags__"))->IntegerValue();
+#define V8JS_GLOBAL_SET_FLAGS(isolate,flags)	V8JS_GLOBAL(isolate)->SetHiddenValue(V8JS_SYM("__php_flags__"), V8JS_INT(flags))
+#define V8JS_GLOBAL_GET_FLAGS(isolate)			V8JS_GLOBAL(isolate)->GetHiddenValue(V8JS_SYM("__php_flags__"))->IntegerValue();
 
 /* Options */
 #define V8JS_FLAG_NONE			(1<<0)
@@ -171,7 +199,12 @@ struct php_v8js_ctx {
   std::vector<char *> modules_stack;
   std::vector<char *> modules_base;
   std::map<const char *,v8js_tmpl_t> template_cache;
+
+  std::map<zval *, v8js_persistent_obj_t> weak_objects;
+  std::map<v8js_tmpl_t *, v8js_persistent_obj_t> weak_closures;
+
   std::vector<php_v8js_accessor_ctx *> accessor_list;
+  char *tz;
 #ifdef ZTS
   void ***zts_ctx;
 #endif
@@ -179,7 +212,12 @@ struct php_v8js_ctx {
 /* }}} */
 
 #ifdef ZTS
-# define V8JS_TSRMLS_FETCH() TSRMLS_FETCH_FROM_CTX(((php_v8js_ctx *) isolate->GetData())->zts_ctx);
+# if PHP_V8_API_VERSION <= 3023008
+   /* Until V8 3.23.8 Isolate could only take one external pointer. */
+#  define V8JS_TSRMLS_FETCH() TSRMLS_FETCH_FROM_CTX(((php_v8js_ctx *) isolate->GetData())->zts_ctx);
+# else
+#  define V8JS_TSRMLS_FETCH() TSRMLS_FETCH_FROM_CTX(((php_v8js_ctx *) isolate->GetData(0))->zts_ctx);
+# endif
 #else
 # define V8JS_TSRMLS_FETCH()
 #endif
@@ -212,6 +250,7 @@ ZEND_BEGIN_MODULE_GLOBALS(v8js)
 
   /* Ini globals */
   char *v8_flags; /* V8 command line flags */
+  bool use_date; /* Generate JS Date objects instead of PHP DateTime */
 
   // Timer thread globals
   std::stack<php_v8js_timer_ctx *> timer_stack;
@@ -220,6 +259,12 @@ ZEND_BEGIN_MODULE_GLOBALS(v8js)
   bool timer_stop;
 
   std::map<char *, v8::Handle<v8::Object> > modules_loaded;
+
+  // fatal error unwinding
+  bool fatal_error_abort;
+  int error_num;
+  char *error_message;
+  jmp_buf *unwind_env;
 ZEND_END_MODULE_GLOBALS(v8js)
 
 extern zend_v8js_globals v8js_globals;
