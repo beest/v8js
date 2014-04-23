@@ -156,8 +156,16 @@ void php_v8js_run_code(php_v8js_ctx *c, const char *source, const char *script_n
 {
 	v8::Isolate *isolate = c->isolate;
 
+	// Each module gets its own global context so different modules do not affect each other
+	v8::Local<v8::ObjectTemplate> global = v8::ObjectTemplate::New();
+	php_v8js_register_methods(global, c);
+	v8::Local<v8::Context> context = v8::Local<v8::Context>::New(isolate, v8::Context::New(isolate, NULL, global));
+	v8::Context::Scope scope(context);
+
+	// Create and parse the script
 	v8::Local<v8::Script> script = v8::Script::New(v8::String::New(source), v8::String::New(script_name));
 
+	// If the script is empty then there must be syntax errors
 	if (script.IsEmpty()) {
 		v8::ThrowException(V8JS_SYM("Script syntax error"));
 		return;
@@ -428,19 +436,17 @@ V8JS_METHOD(require)
 void php_v8js_register_methods(v8::Handle<v8::ObjectTemplate> global, php_v8js_ctx *c) /* {{{ */
 {
 	v8::Isolate *isolate = c->isolate;
-	v8::HandleScope local_scope(isolate);
 
 	global->Set(V8JS_SYM("exit"), v8::FunctionTemplate::New(V8JS_MN(exit)), v8::ReadOnly);
 	global->Set(V8JS_SYM("sleep"), v8::FunctionTemplate::New(V8JS_MN(sleep)), v8::ReadOnly);
 	global->Set(V8JS_SYM("print"), v8::FunctionTemplate::New(V8JS_MN(print)), v8::ReadOnly);
 	global->Set(V8JS_SYM("var_dump"), v8::FunctionTemplate::New(V8JS_MN(var_dump)), v8::ReadOnly);
 
-	c->modules_stack.push_back("");
 	global->Set(V8JS_SYM("require"), v8::FunctionTemplate::New(V8JS_MN(require), v8::External::New(c)), v8::ReadOnly);
 
+	// The define function needs to have an amd property
 	v8::Local<v8::FunctionTemplate> define = v8::FunctionTemplate::New(V8JS_MN(define), v8::External::New(c));
 	define->Set(V8JS_SYM("amd"), v8::ObjectTemplate::New());
-
 	global->Set(V8JS_SYM("define"), define, v8::ReadOnly);
 }
 /* }}} */

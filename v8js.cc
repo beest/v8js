@@ -866,6 +866,7 @@ static PHP_METHOD(V8Js, __construct)
 
 	/* Register builtin methods */
 	php_v8js_register_methods(tpl->InstanceTemplate(), c);
+	c->modules_stack.push_back("");
 
 	/* Create context */
 	v8::Local<v8::Context> context = v8::Context::New(isolate, &extension_conf, tpl->InstanceTemplate());
