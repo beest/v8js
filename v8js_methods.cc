@@ -205,6 +205,71 @@ v8::Handle<v8::Value> php_v8js_get_module_from_map(std::map<const char *, v8js_m
 	return V8JS_UNDEFINED;
 }
 
+void php_v8js_load_module(php_v8js_ctx *c, char *normalised_module_id)
+{
+	V8JS_TSRMLS_FETCH();
+
+	v8::Isolate *isolate = c->isolate;
+
+    // Invoke module loader callable
+
+	zval *source_zend;
+	zval *normalised_module_id_zend;
+
+	MAKE_STD_ZVAL(normalised_module_id_zend);
+	ZVAL_STRING(normalised_module_id_zend, normalised_module_id, 1);
+
+	zval **params[1] = {&normalised_module_id_zend};
+
+	zend_try {
+		if (FAILURE == call_user_function_ex(EG(function_table), NULL, c->module_loader, &source_zend, 1, params, 0, NULL TSRMLS_CC)) {
+			v8::ThrowException(V8JS_SYM("Module loader callback failed"));
+			return;
+		}
+	} zend_catch {
+		v8::ThrowException(V8JS_SYM("Module loader terminated execution"));
+		return;
+	} zend_end_try();
+
+	// Check if a PHP exception was thrown
+	if (EG(exception)) {
+		zend_clear_exception(TSRMLS_C);
+		v8::ThrowException(V8JS_SYM("Module loader failed"));
+		return;
+	}
+
+	// Convert the return value to string
+	if (Z_TYPE_P(source_zend) != IS_STRING) {
+		convert_to_string(source_zend);
+	}
+
+	// Check that some code has been returned
+	if (Z_STRLEN_P(source_zend) == 0) {
+		v8::ThrowException(V8JS_SYM("Module loader callback did not return code"));
+		return;
+	}
+
+	const char *source_str = Z_STRVAL_P(source_zend);
+
+	// Run the Javascript code
+
+	v8::TryCatch try_catch;
+
+	c->modules_stack.push_back(normalised_module_id);
+	php_v8js_run_code(c, source_str, normalised_module_id);
+	c->modules_stack.pop_back();
+
+	if (try_catch.HasCaught()) {
+		try_catch.ReThrow();
+		return;
+	}
+
+	if (!php_v8js_module_in_map(V8JSG(modules_loaded), normalised_module_id)) {
+		v8::ThrowException(V8JS_SYM("Module not loaded"));
+		return;
+	}
+}
+
 /* global.exit - terminate execution */
 V8JS_METHOD(exit) /* {{{ */
 {
@@ -310,63 +375,7 @@ V8JS_METHOD(define)
 			return;
 	    }
 
-	    // Invoke module loader callable
-
-		zval *source_zend;
-		zval *normalised_module_id_zend;
-
-		MAKE_STD_ZVAL(normalised_module_id_zend);
-		ZVAL_STRING(normalised_module_id_zend, normalised_module_id, 1);
-
-		zval **params[1] = {&normalised_module_id_zend};
-
-		zend_try {
-			if (FAILURE == call_user_function_ex(EG(function_table), NULL, c->module_loader, &source_zend, 1, params, 0, NULL TSRMLS_CC)) {
-				info.GetReturnValue().Set(v8::ThrowException(V8JS_SYM("Module loader callback failed")));
-				return;
-			}
-		} zend_catch {
-			info.GetReturnValue().Set(v8::ThrowException(V8JS_SYM("Module loader terminated execution")));
-			return;
-		} zend_end_try();
-
-		// Check if a PHP exception was thrown
-		if (EG(exception)) {
-			zend_clear_exception(TSRMLS_C);
-			info.GetReturnValue().Set(v8::ThrowException(V8JS_SYM("Module loader failed")));
-			return;
-		}
-
-		// Convert the return value to string
-		if (Z_TYPE_P(source_zend) != IS_STRING) {
-			convert_to_string(source_zend);
-		}
-
-		// Check that some code has been returned
-		if (Z_STRLEN_P(source_zend) == 0) {
-			info.GetReturnValue().Set(v8::ThrowException(V8JS_SYM("Module loader callback did not return code")));
-			return;
-		}
-
-		const char *source_str = Z_STRVAL_P(source_zend);
-
-		// Run the Javascript code
-
-		v8::TryCatch try_catch;
-
-		c->modules_stack.push_back(normalised_module_id);
-    	php_v8js_run_code(c, source_str, normalised_module_id);
-    	c->modules_stack.pop_back();
-
-    	if (try_catch.HasCaught()) {
-			try_catch.ReThrow();
-			return;
-    	}
-
-    	if (!php_v8js_module_in_map(V8JSG(modules_loaded), normalised_module_id)) {
-    		info.GetReturnValue().Set(v8::ThrowException(V8JS_SYM("Module not loaded")));
-    		return;
-    	}
+    	php_v8js_load_module(c, normalised_module_id);
 
     	current_modules.push_back(normalised_module_id);
 
@@ -391,7 +400,7 @@ V8JS_METHOD(define)
 		return;
     }
 
-	if (c->modules_stack.size() > 0) {
+	if (c->modules_stack.size() > 1) {
 		// Store the persistent module
 		v8js_module_t *persist_module;
 		persist_module = &V8JSG(modules_loaded)[c->modules_stack.back()];
