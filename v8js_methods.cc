@@ -375,7 +375,16 @@ V8JS_METHOD(define)
 			return;
 	    }
 
-    	php_v8js_load_module(c, normalised_module_id);
+    	if (!php_v8js_module_in_map(V8JSG(modules_loaded), normalised_module_id)) {
+			v8::TryCatch try_catch;
+
+    		php_v8js_load_module(c, normalised_module_id);
+
+			if (try_catch.HasCaught()) {
+				info.GetReturnValue().Set(try_catch.ReThrow());
+				return;
+			}
+    	}
 
     	current_modules.push_back(normalised_module_id);
 
