@@ -157,17 +157,17 @@ void php_v8js_run_code(php_v8js_ctx *c, const char *source, const char *script_n
 	v8::Isolate *isolate = c->isolate;
 
 	// Each module gets its own global context so different modules do not affect each other
-	v8::Local<v8::ObjectTemplate> global = v8::ObjectTemplate::New();
+	v8::Local<v8::ObjectTemplate> global = v8::ObjectTemplate::New(isolate);
 	php_v8js_register_methods(global, c);
 	v8::Local<v8::Context> context = v8::Local<v8::Context>::New(isolate, v8::Context::New(isolate, NULL, global));
 	v8::Context::Scope scope(context);
 
 	// Create and parse the script
-	v8::Local<v8::Script> script = v8::Script::New(v8::String::New(source), v8::String::New(script_name));
+	v8::Local<v8::Script> script = v8::Script::Compile(V8JS_STR(source), V8JS_STR(script_name));
 
 	// If the script is empty then there must be syntax errors
 	if (script.IsEmpty()) {
-		v8::ThrowException(V8JS_SYM("Script syntax error"));
+		isolate->ThrowException(V8JS_SYM("Script syntax error"));
 		return;
 	}
 
@@ -225,18 +225,18 @@ void php_v8js_load_module(php_v8js_ctx *c, char *normalised_module_id)
 
 	zend_try {
 		if (FAILURE == call_user_function_ex(EG(function_table), NULL, c->module_loader, &source_zend, 1, params, 0, NULL TSRMLS_CC)) {
-			v8::ThrowException(V8JS_SYM("Module loader callback failed"));
+			isolate->ThrowException(V8JS_SYM("Module loader callback failed"));
 			return;
 		}
 	} zend_catch {
-		v8::ThrowException(V8JS_SYM("Module loader terminated execution"));
+		isolate->ThrowException(V8JS_SYM("Module loader terminated execution"));
 		return;
 	} zend_end_try();
 
 	// Check if a PHP exception was thrown
 	if (EG(exception)) {
 		zend_clear_exception(TSRMLS_C);
-		v8::ThrowException(V8JS_SYM("Module loader failed"));
+		isolate->ThrowException(V8JS_SYM("Module loader failed"));
 		return;
 	}
 
@@ -247,7 +247,7 @@ void php_v8js_load_module(php_v8js_ctx *c, char *normalised_module_id)
 
 	// Check that some code has been returned
 	if (Z_STRLEN_P(source_zend) == 0) {
-		v8::ThrowException(V8JS_SYM("Module loader callback did not return code"));
+		isolate->ThrowException(V8JS_SYM("Module loader callback did not return code"));
 		return;
 	}
 
@@ -267,7 +267,7 @@ void php_v8js_load_module(php_v8js_ctx *c, char *normalised_module_id)
 	}
 
 	if (!php_v8js_module_in_map(V8JSG(modules_loaded), normalised_module_id)) {
-		v8::ThrowException(V8JS_SYM("Module not loaded"));
+		isolate->ThrowException(V8JS_SYM("Module not loaded"));
 		return;
 	}
 }
@@ -275,7 +275,7 @@ void php_v8js_load_module(php_v8js_ctx *c, char *normalised_module_id)
 /* global.exit - terminate execution */
 V8JS_METHOD(exit) /* {{{ */
 {
-	v8::V8::TerminateExecution();
+	v8::V8::TerminateExecution(info.GetIsolate());
 }
 /* }}} */
 
@@ -345,7 +345,7 @@ V8JS_METHOD(define)
 		++arg;
 	} else {
 		// No dependencies specified
-		dependencies = v8::Array::New(arg);
+		dependencies = V8JS_NEW(v8::Array, isolate, arg);
 	}
 
 	v8::Handle<v8::Function> factory;
@@ -354,7 +354,7 @@ V8JS_METHOD(define)
 		// We have a function that we can assume is a factory method
 		factory = v8::Handle<v8::Function>::Cast(info[arg]);
 	} else {
-		info.GetReturnValue().Set(v8::ThrowException(V8JS_SYM("No factory method")));
+		info.GetReturnValue().Set(isolate->ThrowException(V8JS_SYM("No factory method")));
 		return;
 	}
 
@@ -373,7 +373,7 @@ V8JS_METHOD(define)
 
 		// Check for module cyclic dependencies
 		if (std::count(c->modules_stack.begin(), c->modules_stack.end(), normalised_module_id) > 0) {
-			info.GetReturnValue().Set(v8::ThrowException(V8JS_SYM("Module cyclic dependency")));
+			info.GetReturnValue().Set(isolate->ThrowException(V8JS_SYM("Module cyclic dependency")));
 			return;
 	    }
 
@@ -438,12 +438,12 @@ V8JS_METHOD(require)
 
 	// Check if the required module is available in this scope
 	if (!php_v8js_string_in_vector(c->current_modules, normalised_module_id)) {
-		info.GetReturnValue().Set(v8::ThrowException(V8JS_SYM("Required module not available in this scope")));
+		info.GetReturnValue().Set(isolate->ThrowException(V8JS_SYM("Required module not available in this scope")));
 		return;
 	}
 
 	if (!php_v8js_module_in_map(V8JSG(modules_loaded), normalised_module_id)) {
-		info.GetReturnValue().Set(v8::ThrowException(V8JS_SYM("Required module not loaded")));
+		info.GetReturnValue().Set(isolate->ThrowException(V8JS_SYM("Required module not loaded")));
     	return;
    	}
 
@@ -455,16 +455,16 @@ void php_v8js_register_methods(v8::Handle<v8::ObjectTemplate> global, php_v8js_c
 {
 	v8::Isolate *isolate = c->isolate;
 
-	global->Set(V8JS_SYM("exit"), v8::FunctionTemplate::New(V8JS_MN(exit)), v8::ReadOnly);
-	global->Set(V8JS_SYM("sleep"), v8::FunctionTemplate::New(V8JS_MN(sleep)), v8::ReadOnly);
-	global->Set(V8JS_SYM("print"), v8::FunctionTemplate::New(V8JS_MN(print)), v8::ReadOnly);
-	global->Set(V8JS_SYM("var_dump"), v8::FunctionTemplate::New(V8JS_MN(var_dump)), v8::ReadOnly);
+	global->Set(V8JS_SYM("exit"), V8JS_NEW(v8::FunctionTemplate, isolate, V8JS_MN(exit)), v8::ReadOnly);
+	global->Set(V8JS_SYM("sleep"), V8JS_NEW(v8::FunctionTemplate, isolate, V8JS_MN(sleep)), v8::ReadOnly);
+	global->Set(V8JS_SYM("print"), V8JS_NEW(v8::FunctionTemplate, isolate, V8JS_MN(print)), v8::ReadOnly);
+	global->Set(V8JS_SYM("var_dump"), V8JS_NEW(v8::FunctionTemplate, isolate, V8JS_MN(var_dump)), v8::ReadOnly);
 
-	global->Set(V8JS_SYM("require"), v8::FunctionTemplate::New(V8JS_MN(require), v8::External::New(c)), v8::ReadOnly);
+	global->Set(V8JS_SYM("require"), V8JS_NEW(v8::FunctionTemplate, isolate, V8JS_MN(require), V8JS_NEW(v8::External, isolate, c)), v8::ReadOnly);
 
 	// The define function needs to have an amd property
-	v8::Local<v8::FunctionTemplate> define = v8::FunctionTemplate::New(V8JS_MN(define), v8::External::New(c));
-	define->Set(V8JS_SYM("amd"), v8::ObjectTemplate::New());
+	v8::Local<v8::FunctionTemplate> define = V8JS_NEW(v8::FunctionTemplate, isolate, V8JS_MN(define), V8JS_NEW(v8::External, isolate, c));
+	define->Set(V8JS_SYM("amd"), v8::ObjectTemplate::New(isolate));
 	global->Set(V8JS_SYM("define"), define, v8::ReadOnly);
 }
 /* }}} */
