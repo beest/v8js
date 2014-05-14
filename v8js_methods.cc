@@ -460,11 +460,17 @@ void php_v8js_register_methods(v8::Handle<v8::ObjectTemplate> global, php_v8js_c
 	global->Set(V8JS_SYM("print"), V8JS_NEW(v8::FunctionTemplate, isolate, V8JS_MN(print)), v8::ReadOnly);
 	global->Set(V8JS_SYM("var_dump"), V8JS_NEW(v8::FunctionTemplate, isolate, V8JS_MN(var_dump)), v8::ReadOnly);
 
-	global->Set(V8JS_SYM("require"), V8JS_NEW(v8::FunctionTemplate, isolate, V8JS_MN(require), V8JS_NEW(v8::External, isolate, c)), v8::ReadOnly);
-
 	// The define function needs to have an amd property
 	v8::Local<v8::FunctionTemplate> define = V8JS_NEW(v8::FunctionTemplate, isolate, V8JS_MN(define), V8JS_NEW(v8::External, isolate, c));
 	define->Set(V8JS_SYM("amd"), v8::ObjectTemplate::New(isolate));
+
+	// If this is the first execution then require can be used identically to define
+	if (c->modules_stack.size() == 0) {
+		global->Set(V8JS_SYM("require"), define, v8::ReadOnly);
+	} else {
+		global->Set(V8JS_SYM("require"), V8JS_NEW(v8::FunctionTemplate, isolate, V8JS_MN(require), V8JS_NEW(v8::External, isolate, c)), v8::ReadOnly);
+	}
+
 	global->Set(V8JS_SYM("define"), define, v8::ReadOnly);
 }
 /* }}} */
