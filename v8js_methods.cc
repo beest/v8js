@@ -455,10 +455,12 @@ void php_v8js_register_methods(v8::Handle<v8::ObjectTemplate> global, php_v8js_c
 {
 	v8::Isolate *isolate = c->isolate;
 
+/*
 	global->Set(V8JS_SYM("exit"), V8JS_NEW(v8::FunctionTemplate, isolate, V8JS_MN(exit)), v8::ReadOnly);
 	global->Set(V8JS_SYM("sleep"), V8JS_NEW(v8::FunctionTemplate, isolate, V8JS_MN(sleep)), v8::ReadOnly);
-	global->Set(V8JS_SYM("print"), V8JS_NEW(v8::FunctionTemplate, isolate, V8JS_MN(print)), v8::ReadOnly);
+*/
 	global->Set(V8JS_SYM("var_dump"), V8JS_NEW(v8::FunctionTemplate, isolate, V8JS_MN(var_dump)), v8::ReadOnly);
+	global->Set(V8JS_SYM("print"), V8JS_NEW(v8::FunctionTemplate, isolate, V8JS_MN(print)), v8::ReadOnly);
 
 	// The define function needs to have an amd property
 	v8::Local<v8::FunctionTemplate> define = V8JS_NEW(v8::FunctionTemplate, isolate, V8JS_MN(define), V8JS_NEW(v8::External, isolate, c));
