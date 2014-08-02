@@ -941,7 +941,8 @@ static PHP_METHOD(V8Js, __construct)
 		}
 	}
 
-
+	// Clear the loaded modules map
+	V8JSG(modules_loaded).clear();
 }
 /* }}} */
 
