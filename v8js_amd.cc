@@ -60,6 +60,15 @@ void php_v8js_amd_split_terms(char *input, std::vector<const char *> &terms)
 
 void php_v8js_amd_normalise_id(const char *base_module_id, const char *module_id, char *normalised_module_id)
 {
+    // Initialise the normalised module ID string
+    *normalised_module_id = 0;
+
+    // Special case modules are prefied with @
+    if (*module_id == '@') {
+        strcat(normalised_module_id, module_id);
+        return;
+    }
+
     std::vector<const char *> id_terms, terms;
     php_v8js_amd_split_terms((char *)module_id, id_terms);
 
@@ -87,9 +96,6 @@ void php_v8js_amd_normalise_id(const char *base_module_id, const char *module_id
             normalised_terms.push_back(term);
         }
     }
-
-    // Initialise the normalised module ID string
-    *normalised_module_id = 0;
 
     for (std::vector<const char *>::iterator it = normalised_terms.begin(); it != normalised_terms.end(); it++) {
         if (strlen(normalised_module_id) > 0) {
