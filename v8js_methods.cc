@@ -213,6 +213,12 @@ void php_v8js_load_module(php_v8js_ctx *c, char *normalised_module_id)
 
 	v8::Isolate *isolate = c->isolate;
 
+	// If there is no module loader then throw an exception
+	if (c->module_loader == NULL) {
+		isolate->ThrowException(V8JS_SYM("No module loader"));
+		return;
+	}
+
     // Invoke module loader callable
 
 	zval *source_zend;
