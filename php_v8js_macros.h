@@ -197,6 +197,7 @@ struct php_v8js_ctx {
   bool memory_limit_hit;
   v8::Persistent<v8::FunctionTemplate> global_template;
   zval *module_loader;
+  zval *log_handler;
   std::vector<const char *> modules_stack;
   std::vector<const char *> current_modules;
   std::map<const char *,v8js_tmpl_t> template_cache;

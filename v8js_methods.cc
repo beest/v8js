@@ -451,6 +451,57 @@ V8JS_METHOD(require)
 	info.GetReturnValue().Set(php_v8js_get_module_from_map(V8JSG(modules_loaded), normalised_module_id, isolate));
 }
 
+/* console.log - pass message to log handler */
+V8JS_METHOD(console_log) /* {{{ */
+{
+	V8JS_TSRMLS_FETCH();
+
+	// Get the extension context
+	v8::Handle<v8::External> data = v8::Handle<v8::External>::Cast(info.Data());
+	php_v8js_ctx *c = static_cast<php_v8js_ctx*>(data->Value());
+
+	v8::Isolate *isolate = c->isolate;
+
+	// If we don't have a log handler callable then silently ignore all calls
+	if (c->log_handler == NULL) {
+		info.GetReturnValue().Set(V8JS_NULL);
+		return;
+	}
+
+	v8::String::Utf8Value message_v8(info[0]);
+	const char *message = ToCString(message_v8);
+
+    // Invoke log handler callable
+
+	zval *return_zend;
+	zval *message_zend;
+
+	MAKE_STD_ZVAL(message_zend);
+	ZVAL_STRING(message_zend, message, 1);
+
+	zval **params[1] = {&message_zend};
+
+	zend_try {
+		if (FAILURE == call_user_function_ex(EG(function_table), NULL, c->log_handler, &return_zend, 1, params, 0, NULL TSRMLS_CC)) {
+			isolate->ThrowException(V8JS_SYM("Log handler callback failed"));
+			return;
+		}
+	} zend_catch {
+		isolate->ThrowException(V8JS_SYM("Log handler terminated execution"));
+		return;
+	} zend_end_try();
+
+	// Check if a PHP exception was thrown
+	if (EG(exception)) {
+		zend_clear_exception(TSRMLS_C);
+		isolate->ThrowException(V8JS_SYM("Log handler failed"));
+		return;
+	}
+
+	info.GetReturnValue().Set(V8JS_NULL);
+}
+/* }}} */
+
 void php_v8js_register_methods(v8::Handle<v8::ObjectTemplate> global, php_v8js_ctx *c) /* {{{ */
 {
 	v8::Isolate *isolate = c->isolate;
@@ -461,6 +512,10 @@ void php_v8js_register_methods(v8::Handle<v8::ObjectTemplate> global, php_v8js_c
 */
 	global->Set(V8JS_SYM("var_dump"), V8JS_NEW(v8::FunctionTemplate, isolate, V8JS_MN(var_dump)), v8::ReadOnly);
 	global->Set(V8JS_SYM("print"), V8JS_NEW(v8::FunctionTemplate, isolate, V8JS_MN(print)), v8::ReadOnly);
+
+	v8::Local<v8::ObjectTemplate> console = v8::ObjectTemplate::New(isolate);
+	console->Set(V8JS_SYM("log"), V8JS_NEW(v8::FunctionTemplate, isolate, V8JS_MN(console_log), V8JS_NEW(v8::External, isolate, c)), v8::ReadOnly);
+	global->Set(V8JS_SYM("console"), console, v8::ReadOnly);
 
 	// The define function needs to have an amd property
 	v8::Local<v8::FunctionTemplate> define = V8JS_NEW(v8::FunctionTemplate, isolate, V8JS_MN(define), V8JS_NEW(v8::External, isolate, c));

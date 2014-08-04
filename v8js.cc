@@ -829,6 +829,7 @@ static PHP_METHOD(V8Js, __construct)
 	c->time_limit_hit = false;
 	c->memory_limit_hit = false;
 	c->module_loader = NULL;
+	c->log_handler = NULL;
 
 	/* Include extensions used by this context */
 	/* Note: Extensions registered with auto_enable do not need to be added separately like this. */
@@ -1329,6 +1330,24 @@ static PHP_METHOD(V8Js, setModuleLoader)
 }
 /* }}} */
 
+/* {{{ proto void V8Js::setLogHandler(string module)
+ */
+static PHP_METHOD(V8Js, setLogHandler)
+{
+	php_v8js_ctx *c;
+	zval *callable;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "z", &callable) == FAILURE) {
+		return;
+	}
+
+	c = (php_v8js_ctx *) zend_object_store_get_object(getThis() TSRMLS_CC);
+
+	c->log_handler = callable;
+	Z_ADDREF_P(c->log_handler);
+}
+/* }}} */
+
 static void php_v8js_persistent_zval_ctor(zval **p) /* {{{ */
 {
 	zval *orig_ptr = *p;
@@ -1509,6 +1528,10 @@ ZEND_BEGIN_ARG_INFO_EX(arginfo_v8js_setmoduleloader, 0, 0, 1)
 	ZEND_ARG_INFO(0, callable)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_INFO_EX(arginfo_v8js_setloghandler, 0, 0, 1)
+	ZEND_ARG_INFO(0, callable)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_INFO_EX(arginfo_v8js_registerextension, 0, 0, 2)
 	ZEND_ARG_INFO(0, extension_name)
 	ZEND_ARG_INFO(0, script)
@@ -1541,6 +1564,7 @@ static const zend_function_entry v8js_methods[] = { /* {{{ */
 	PHP_ME(V8Js,    checkString,			arginfo_v8js_checkstring,			ZEND_ACC_PUBLIC)
 	PHP_ME(V8Js,	getPendingException,	arginfo_v8js_getpendingexception,	ZEND_ACC_PUBLIC)
 	PHP_ME(V8Js,	setModuleLoader,		arginfo_v8js_setmoduleloader,		ZEND_ACC_PUBLIC)
+	PHP_ME(V8Js,	setLogHandler,			arginfo_v8js_setloghandler,			ZEND_ACC_PUBLIC)
 	PHP_ME(V8Js,	registerExtension,		arginfo_v8js_registerextension,		ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(V8Js,	getExtensions,			arginfo_v8js_getextensions,			ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 #ifdef ENABLE_DEBUGGER_SUPPORT
