@@ -114,7 +114,7 @@ static void php_v8js_call_php_func(zval *value, zend_class_entry *ce, zend_funct
 
 	/* Convert parameters passed from V8 */
 	if (argc) {
-		flags = V8JS_GLOBAL_GET_FLAGS(isolate);
+		flags = ctx->flags;
 		fci.params = (zval ***) safe_emalloc(argc, sizeof(zval **), 0);
 		argv = (zval **) safe_emalloc(argc, sizeof(zval *), 0);
 		for (i = 0; i < argc; i++) {

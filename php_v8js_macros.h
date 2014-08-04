@@ -137,10 +137,6 @@ typedef v8::Persistent<v8::Value, v8::CopyablePersistentTraits<v8::Value> > v8js
 # define V8JS_CONST (char *)
 #endif
 
-/* Global flags */
-#define V8JS_GLOBAL_SET_FLAGS(isolate,flags)	V8JS_GLOBAL(isolate)->SetHiddenValue(V8JS_SYM("__php_flags__"), V8JS_INT(flags))
-#define V8JS_GLOBAL_GET_FLAGS(isolate)			V8JS_GLOBAL(isolate)->GetHiddenValue(V8JS_SYM("__php_flags__"))->IntegerValue();
-
 /* Options */
 #define V8JS_FLAG_NONE			(1<<0)
 #define V8JS_FLAG_FORCE_ARRAY	(1<<1)
@@ -201,6 +197,7 @@ struct php_v8js_ctx {
   std::vector<const char *> modules_stack;
   std::vector<const char *> current_modules;
   std::map<const char *,v8js_tmpl_t> template_cache;
+  int flags;
 
   std::map<zval *, v8js_persistent_obj_t> weak_objects;
   std::map<v8js_tmpl_t *, v8js_persistent_obj_t> weak_closures;
